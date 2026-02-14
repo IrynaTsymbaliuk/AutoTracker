@@ -47,44 +47,11 @@ dependencies {
 publishing {
     publications {
         register<MavenPublication>("release") {
-            groupId = "com.auto.tracker"
+            groupId = "com.github.IrynaTsymbaliuk"
             artifactId = "core"
-            version = "0.0.1"
 
             afterEvaluate {
                 from(components["release"])
-            }
-
-            pom {
-                name.set("AutoTracker Core")
-                description.set("Core interfaces and data models for AutoTracker fitness data collection library")
-                url.set("https://github.com/IrynaTsymbaliuk/AutoTracker")
-
-                licenses {
-                    license {
-                        name.set("The Apache License, Version 2.0")
-                        url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
-                    }
-                }
-
-                developers {
-                    developer {
-                        id.set("IrynaTsymbaliuk")
-                        name.set("Iryna Tsymbaliuk")
-                        email.set("Iryna.Tsymbaliuk.dev@gmail.com")
-                    }
-                }
-            }
-        }
-    }
-
-    repositories {
-        maven {
-            name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/IrynaTsymbaliuk/AutoTracker")
-            credentials {
-                username = project.findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
-                password = project.findProperty("gpr.token") as String? ?: System.getenv("GITHUB_TOKEN")
             }
         }
     }

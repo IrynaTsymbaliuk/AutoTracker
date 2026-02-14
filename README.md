@@ -1,5 +1,6 @@
 # AutoTracker
 
+[![JitPack](https://jitpack.io/v/IrynaTsymbaliuk/AutoTracker.svg)](https://jitpack.io/#IrynaTsymbaliuk/AutoTracker)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Android API](https://img.shields.io/badge/API-26%2B-brightgreen.svg?style=flat)](https://android-arsenal.com/api?level=26)
 
@@ -29,47 +30,30 @@ AutoTracker is a modern Android library that provides an easy and efficient way 
 
 ### 1. Add Repository
 
-Add GitHub Packages repository to your `settings.gradle.kts`:
+Add JitPack repository to your `settings.gradle.kts`:
 
 ```kotlin
 dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven {
-            url = uri("https://maven.pkg.github.com/IrynaTsymbaliuk/AutoTracker")
-            credentials {
-                username = project.findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
-                password = project.findProperty("gpr.token") as String? ?: System.getenv("GITHUB_TOKEN")
-            }
-        }
+        maven { url = uri("https://jitpack.io") }
     }
 }
 ```
 
-### 2. Add Authentication
-
-Create `~/.gradle/gradle.properties` (in your home directory):
-
-```properties
-gpr.user=YOUR_GITHUB_USERNAME
-gpr.token=YOUR_GITHUB_TOKEN
-```
-
-> **Note**: You need a GitHub Personal Access Token with `read:packages` scope. [Generate one here](https://github.com/settings/tokens).
-
-### 3. Add Dependencies
+### 2. Add Dependencies
 
 In your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.auto.tracker:core:0.0.1")
-    implementation("com.auto.tracker:collector-steps:0.0.1")
+    implementation("com.github.IrynaTsymbaliuk.AutoTracker:core:0.0.1")
+    implementation("com.github.IrynaTsymbaliuk.AutoTracker:collector-steps:0.0.1")
 }
 ```
 
-### 4. Configure Health Connect
+### 3. Configure Health Connect
 
 Add to your `AndroidManifest.xml`:
 
