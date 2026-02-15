@@ -40,6 +40,7 @@ dependencies {
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     implementation(libs.work.runtime)
+    implementation(libs.startup.runtime)
     ksp(libs.room.compiler)
 
     implementation(libs.androidx.core.ktx)

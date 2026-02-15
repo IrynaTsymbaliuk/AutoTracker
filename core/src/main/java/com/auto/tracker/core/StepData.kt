@@ -1,6 +1,6 @@
 package com.auto.tracker.core
 
 data class StepsData(
-    val hour: Int,        // 0-23
-    val count: Long
-)
+    override val timestamp: Long,  // epoch millis - start of hour or day depending on granularity
+    override val count: Long
+) : HealthData

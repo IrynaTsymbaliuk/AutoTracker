@@ -8,6 +8,9 @@ AutoTracker is a modern Android library that provides an easy and efficient way 
 
 ## Features
 
+- **Unified API**: Single `HealthDataManager` entry point for all health data types
+- **Plugin Architecture**: Auto-registration of collectors via AndroidX Startup
+- **Flexible Granularity**: Support for hourly and daily data aggregation
 - **Simple API**: Clean and intuitive interface for data collection
 - **Automatic Background Sync**: Periodic data updates without manual intervention
 - **Local Storage**: Efficient caching with Room database
@@ -16,15 +19,17 @@ AutoTracker is a modern Android library that provides an easy and efficient way 
 - **Battery Efficient**: Respects device battery constraints
 - **Reactive**: Kotlin Flow-based observation for real-time updates
 - **Type-Safe**: Strongly typed data models
+- **Modular**: Include only the collectors you need
 
 ## Current Data Sources
 
 ### Steps Collection (Health Connect)
 - Collects step count data from Health Connect API
-- Hourly aggregated data
+- Supports hourly and daily granularity
 - Automatic background sync every 1 hour
 - Stores last 366 days of data
 - Initial sync covers last 30 days
+- Auto-registers via AndroidX Startup
 
 ## Installation
 
@@ -48,8 +53,8 @@ In your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.IrynaTsymbaliuk.AutoTracker:core:0.0.1")
-    implementation("com.github.IrynaTsymbaliuk.AutoTracker:collector-steps:0.0.1")
+    implementation("com.github.IrynaTsymbaliuk.AutoTracker:core:0.0.2")
+    implementation("com.github.IrynaTsymbaliuk.AutoTracker:collector-steps:0.0.2")
 }
 ```
 
@@ -79,7 +84,42 @@ Add to your `AndroidManifest.xml`:
 
 ## Usage
 
-### Basic Setup
+### Unified API (Recommended - v0.0.2+)
+
+The library automatically registers all collectors via AndroidX Startup. Simply use `HealthDataManager`:
+
+```kotlin
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        lifecycleScope.launch {
+            // Check what data types are available
+            val available = HealthDataManager.getAvailableTypes()
+            // Returns: [STEPS] if collector-steps module is included
+
+            // Get daily step data for the last 7 days
+            val weekAgo = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000)
+            val now = System.currentTimeMillis()
+
+            val dailySteps = HealthDataManager.get(
+                type = DataType.STEPS,
+                from = weekAgo,
+                to = now,
+                granularity = Granularity.DAILY
+            )
+
+            dailySteps.forEach { stepData ->
+                println("${stepData.timestamp}: ${stepData.count} steps")
+            }
+        }
+    }
+}
+```
+
+### Direct Collector Access (Advanced)
+
+For advanced use cases, you can still access collectors directly:
 
 ```kotlin
 class MainActivity : ComponentActivity() {
@@ -164,13 +204,29 @@ stepsCollector.disableBackgroundSync(context)
 
 ### Observe Data
 
+With HealthDataManager (v0.0.2+):
+
 ```kotlin
 lifecycleScope.launch {
-    stepsCollector.observe()
+    // Observe hourly step data
+    HealthDataManager.observe(DataType.STEPS, Granularity.HOURLY)
         .collect { stepsDataList ->
-            // stepsDataList contains today's hourly step counts
             stepsDataList.forEach { data ->
-                println("Hour ${data.hour}: ${data.count} steps")
+                println("${data.timestamp}: ${data.count} steps")
+            }
+        }
+}
+```
+
+Direct collector access:
+
+```kotlin
+lifecycleScope.launch {
+    stepsCollector.observe(Granularity.DAILY)
+        .collect { stepsDataList ->
+            // stepsDataList contains today's step counts
+            stepsDataList.forEach { data ->
+                println("${data.timestamp}: ${data.count} steps")
             }
         }
 }
@@ -180,13 +236,17 @@ lifecycleScope.launch {
 
 ```kotlin
 @Composable
-fun StepsScreen(collector: StepsCollector) {
-    val steps by collector.observe()
+fun StepsScreen() {
+    val dailySteps by HealthDataManager.observe(DataType.STEPS, Granularity.DAILY)
         .collectAsState(initial = emptyList())
 
     LazyColumn {
-        items(steps) { data ->
-            Text("Hour ${data.hour}: ${data.count} steps")
+        items(dailySteps) { data ->
+            val date = remember(data.timestamp) {
+                SimpleDateFormat("MMM dd", Locale.getDefault())
+                    .format(Date(data.timestamp))
+            }
+            Text("$date: ${data.count} steps")
         }
     }
 }
@@ -194,26 +254,61 @@ fun StepsScreen(collector: StepsCollector) {
 
 ## Architecture
 
+### Plugin-Based Design (v0.0.2+)
+
+AutoTracker uses a plugin architecture where each collector auto-registers via AndroidX Startup:
+
+```
+┌──────────────────────────────────────┐
+│      HealthDataManager (core)        │  ← Single unified API
+│  - get(type, from, to, granularity)  │
+│  - observe(type, granularity)        │
+│  - isAvailable(type)                 │
+└──────────────────────────────────────┘
+                   ↓
+┌──────────────────────────────────────┐
+│   DataCollectorRegistry (internal)    │  ← Plugin registry
+│  - Manages registered collectors      │
+└──────────────────────────────────────┘
+                   ↓
+    ┌──────────────┴──────────────┐
+    ↓                             ↓
+┌────────────────┐      ┌────────────────┐
+│ StepsCollector │      │ SleepCollector │  ← Auto-registered
+│   (Steps)      │      │   (Future)     │     via Initializers
+└────────────────┘      └────────────────┘
+```
+
 ### Core Module
 
-The `core` module provides the foundation for all data collectors:
+The `core` module provides the foundation:
 
 ```kotlin
+// Base interface for all collectors
 interface DataCollector<T> {
     suspend fun checkPermissions(): PermissionState
     suspend fun sync(): Result<Unit>
     fun observe(): Flow<List<T>>
 }
-```
 
-This generic interface allows for consistent implementation across different data sources.
+// Extended interface with granularity support
+interface GranularDataCollector<T : HealthData> : DataCollector<T> {
+    suspend fun get(from: Long, to: Long, granularity: Granularity): List<T>
+    fun observe(granularity: Granularity): Flow<List<T>>
+}
+```
 
 ### Collector Modules
 
-Each collector module implements `DataCollector` for a specific data source:
+Each collector module:
+1. Implements `GranularDataCollector<T>`
+2. Provides an `Initializer` that auto-registers on app startup
+3. Is completely independent (can be included/excluded as needed)
 
-- **collector-steps**: Steps data from Health Connect
-- *(More collectors coming soon)*
+**Available collectors:**
+- **collector-steps**: Steps data from Health Connect ✓
+- **collector-sleep**: Sleep data *(coming soon)*
+- **collector-exercise**: Exercise/workout data *(coming soon)*
 
 ### Data Flow
 
@@ -222,12 +317,24 @@ Health Connect API
         ↓
 StepsSyncManager (incremental sync with change tokens)
         ↓
-Room Database (local storage)
+Room Database (local storage with hourly granularity)
         ↓
-StepsCollector (reactive Flow)
+StepsCollector (aggregation by hour/day)
+        ↓
+HealthDataManager (unified API)
         ↓
 Your App UI
 ```
+
+### Auto-Registration
+
+When your app starts:
+1. AndroidX Startup discovers all `Initializer` classes
+2. Each collector's initializer runs automatically
+3. Collectors register themselves with `HealthDataManager`
+4. Your app can immediately use `HealthDataManager.get()` / `observe()`
+
+No manual setup required!
 
 ### Background Sync
 

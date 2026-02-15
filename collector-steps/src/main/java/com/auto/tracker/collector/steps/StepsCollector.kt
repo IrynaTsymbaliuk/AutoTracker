@@ -6,7 +6,9 @@ import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.StepsRecord
 import androidx.work.PeriodicWorkRequestBuilder
 import com.auto.tracker.collector.steps.db.StepsDatabase
-import com.auto.tracker.core.DataCollector
+import com.auto.tracker.collector.steps.db.StepsEntity
+import com.auto.tracker.core.GranularDataCollector
+import com.auto.tracker.core.Granularity
 import com.auto.tracker.core.PermissionState
 import com.auto.tracker.core.StepsData
 import kotlinx.coroutines.flow.Flow
@@ -16,7 +18,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 class StepsCollector private constructor(private val context: Context) :
-    DataCollector<StepsData> {
+    GranularDataCollector<StepsData> {
 
     private val client by lazy { HealthConnectClient.getOrCreate(context) }
     private val syncManager = StepsSyncManager(context)
@@ -48,11 +50,35 @@ class StepsCollector private constructor(private val context: Context) :
         ).map { entities ->
             entities.map { entity ->
                 StepsData(
-                    hour = Instant.ofEpochMilli(entity.hourStart)
-                        .atZone(ZoneId.systemDefault())
-                        .hour,
+                    timestamp = entity.hourStart,
                     count = entity.count
                 )
+            }
+        }
+    }
+
+    override suspend fun get(from: Long, to: Long, granularity: Granularity): List<StepsData> {
+        val entities = dao.get(from, to)
+
+        return when (granularity) {
+            Granularity.HOURLY -> aggregateByHour(entities)
+            Granularity.DAILY -> aggregateByDay(entities)
+        }
+    }
+
+    override fun observe(granularity: Granularity): Flow<List<StepsData>> {
+        val startOfDay = LocalDate.now()
+            .atStartOfDay(ZoneId.systemDefault())
+            .toInstant()
+        val now = Instant.now()
+
+        return dao.observe(
+            from = startOfDay.toEpochMilli(),
+            to = now.toEpochMilli()
+        ).map { entities ->
+            when (granularity) {
+                Granularity.HOURLY -> aggregateByHour(entities)
+                Granularity.DAILY -> aggregateByDay(entities)
             }
         }
     }
@@ -85,6 +111,46 @@ class StepsCollector private constructor(private val context: Context) :
     fun disableBackgroundSync(context: Context) {
         androidx.work.WorkManager.getInstance(context)
             .cancelUniqueWork(StepsSyncWorker.WORK_NAME)
+    }
+
+    private fun aggregateByHour(entities: List<StepsEntity>): List<StepsData> {
+        return entities
+            .groupBy { entity ->
+                // Group by start of hour
+                val instant = Instant.ofEpochMilli(entity.hourStart)
+                val zonedDateTime = instant.atZone(ZoneId.systemDefault())
+                zonedDateTime.toLocalDate().atStartOfDay(ZoneId.systemDefault())
+                    .plusHours(zonedDateTime.hour.toLong())
+                    .toInstant()
+                    .toEpochMilli()
+            }
+            .toSortedMap()
+            .map { (hourTimestamp, hourEntities) ->
+                StepsData(
+                    timestamp = hourTimestamp,
+                    count = hourEntities.sumOf { it.count }
+                )
+            }
+    }
+
+    private fun aggregateByDay(entities: List<StepsEntity>): List<StepsData> {
+        return entities
+            .groupBy { entity ->
+                // Group by start of day
+                Instant.ofEpochMilli(entity.hourStart)
+                    .atZone(ZoneId.systemDefault())
+                    .toLocalDate()
+                    .atStartOfDay(ZoneId.systemDefault())
+                    .toInstant()
+                    .toEpochMilli()
+            }
+            .toSortedMap()
+            .map { (dayTimestamp, dayEntities) ->
+                StepsData(
+                    timestamp = dayTimestamp,
+                    count = dayEntities.sumOf { it.count }
+                )
+            }
     }
 
     companion object {
