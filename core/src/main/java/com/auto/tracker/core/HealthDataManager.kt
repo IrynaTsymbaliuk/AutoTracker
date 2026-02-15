@@ -1,7 +1,5 @@
 package com.auto.tracker.core
 
-import kotlinx.coroutines.flow.Flow
-
 object HealthDataManager {
 
     /**
@@ -21,21 +19,6 @@ object HealthDataManager {
         granularity: Granularity = Granularity.DAILY
     ): List<HealthData> {
         return DataCollectorRegistry.get(type, from, to, granularity)
-    }
-
-    /**
-     * Observes health data for the specified type in real-time.
-     *
-     * @param type The type of health data to observe (e.g., STEPS, SLEEP)
-     * @param granularity The granularity of aggregation (HOURLY or DAILY)
-     * @return Flow of health data lists that updates when data changes
-     * @throws IllegalStateException if the collector for the specified type is not registered
-     */
-    fun observe(
-        type: DataType,
-        granularity: Granularity = Granularity.DAILY
-    ): Flow<List<HealthData>> {
-        return DataCollectorRegistry.observe(type, granularity)
     }
 
     /**

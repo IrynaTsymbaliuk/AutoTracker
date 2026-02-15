@@ -1,7 +1,5 @@
 package com.auto.tracker.core
 
-import kotlinx.coroutines.flow.Flow
-
 internal object DataCollectorRegistry {
 
     private val collectors = mutableMapOf<DataType, DataCollector<out HealthData>>()
@@ -38,19 +36,6 @@ internal object DataCollectorRegistry {
         return when (collector) {
             is GranularDataCollector -> collector.get(from, to, granularity)
             else -> throw UnsupportedOperationException("Collector for $type does not support get() with granularity")
-        }
-    }
-
-    fun observe(
-        type: DataType,
-        granularity: Granularity
-    ): Flow<List<HealthData>> {
-        val collector = getCollector(type)
-            ?: throw IllegalStateException("Collector for $type is not registered. Make sure the corresponding module is included in your dependencies.")
-
-        return when (collector) {
-            is GranularDataCollector -> collector.observe(granularity)
-            else -> throw UnsupportedOperationException("Collector for $type does not support observe() with granularity")
         }
     }
 }

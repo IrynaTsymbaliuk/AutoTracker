@@ -1,7 +1,6 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.ksp)
     `maven-publish`
 }
 
@@ -37,11 +36,7 @@ android {
 dependencies {
     api(project(":core"))
     implementation(libs.health.connect)
-    implementation(libs.room.runtime)
-    implementation(libs.room.ktx)
-    implementation(libs.work.runtime)
     implementation(libs.startup.runtime)
-    ksp(libs.room.compiler)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

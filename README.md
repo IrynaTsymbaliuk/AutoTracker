@@ -4,32 +4,30 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Android API](https://img.shields.io/badge/API-26%2B-brightgreen.svg?style=flat)](https://android-arsenal.com/api?level=26)
 
-AutoTracker is a modern Android library that provides an easy and efficient way to collect user health and activity data. It handles permissions, data synchronization, local storage, and background updates automatically.
+AutoTracker is a modern Android library that provides an easy and efficient way to collect user health and activity data. It offers a simple, unified API with automatic data aggregation and flexible granularity options.
 
 ## Features
 
 - **Unified API**: Single `HealthDataManager` entry point for all health data types
+- **Stateless Design**: No local database, direct queries to data sources
 - **Plugin Architecture**: Auto-registration of collectors via AndroidX Startup
 - **Flexible Granularity**: Support for hourly and daily data aggregation
-- **Simple API**: Clean and intuitive interface for data collection
-- **Automatic Background Sync**: Periodic data updates without manual intervention
-- **Local Storage**: Efficient caching with Room database
-- **Incremental Sync**: Smart synchronization using change tokens to minimize data transfer
+- **Simple & Clean API**: Intuitive interface for data collection
 - **Permission Management**: Built-in permission state checking
-- **Battery Efficient**: Respects device battery constraints
-- **Reactive**: Kotlin Flow-based observation for real-time updates
 - **Type-Safe**: Strongly typed data models
 - **Modular**: Include only the collectors you need
+- **Lightweight**: Minimal dependencies and overhead
+- **On-Demand**: Fetch data only when you need it
 
 ## Current Data Sources
 
 ### Steps Collection (Health Connect)
-- Collects step count data from Health Connect API
+- Fetches step count data directly from Health Connect API
 - Supports hourly and daily granularity
-- Automatic background sync every 1 hour
-- Stores last 366 days of data
-- Initial sync covers last 30 days
+- Query any time range on-demand
 - Auto-registers via AndroidX Startup
+- Stateless - no local caching required
+- Apps control their own refresh/polling strategy
 
 ## Installation
 
@@ -53,8 +51,8 @@ In your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.IrynaTsymbaliuk.AutoTracker:core:0.0.2")
-    implementation("com.github.IrynaTsymbaliuk.AutoTracker:collector-steps:0.0.2")
+    implementation("com.github.IrynaTsymbaliuk.AutoTracker:core:0.0.3")
+    implementation("com.github.IrynaTsymbaliuk.AutoTracker:collector-steps:0.0.3")
 }
 ```
 
@@ -84,7 +82,7 @@ Add to your `AndroidManifest.xml`:
 
 ## Usage
 
-### Unified API (Recommended - v0.0.2+)
+### Unified API (Recommended - v0.0.3+)
 
 The library automatically registers all collectors via AndroidX Startup. Simply use `HealthDataManager`:
 
@@ -131,21 +129,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         lifecycleScope.launch {
-            // Check if Health Connect is available
-            if (!stepsCollector.isAvailable()) {
-                // Guide user to install Health Connect
-                return@launch
-            }
-
-            // Check permissions
+            // Check permissions and Health Connect availability
             when (stepsCollector.checkPermissions()) {
                 PermissionState.Granted -> {
-                    // Start collecting data
+                    // Ready to collect data
                     startDataCollection()
                 }
                 PermissionState.Denied -> {
-                    // Request permissions
+                    // Health Connect available but permissions not granted
                     requestPermissions()
+                }
+                PermissionState.Unavailable -> {
+                    // Health Connect not installed
+                    showInstallHealthConnectDialog()
                 }
             }
         }
@@ -177,81 +173,6 @@ private fun requestPermissions() {
 }
 ```
 
-### Sync Data
-
-```kotlin
-lifecycleScope.launch {
-    // Manual sync
-    stepsCollector.sync()
-        .onSuccess {
-            Log.d("AutoTracker", "Sync successful")
-        }
-        .onFailure { error ->
-            Log.e("AutoTracker", "Sync failed", error)
-        }
-}
-```
-
-### Enable Background Sync
-
-```kotlin
-// Enable automatic hourly sync
-stepsCollector.enableBackgroundSync(context)
-
-// Disable when no longer needed
-stepsCollector.disableBackgroundSync(context)
-```
-
-### Observe Data
-
-With HealthDataManager (v0.0.2+):
-
-```kotlin
-lifecycleScope.launch {
-    // Observe hourly step data
-    HealthDataManager.observe(DataType.STEPS, Granularity.HOURLY)
-        .collect { stepsDataList ->
-            stepsDataList.forEach { data ->
-                println("${data.timestamp}: ${data.count} steps")
-            }
-        }
-}
-```
-
-Direct collector access:
-
-```kotlin
-lifecycleScope.launch {
-    stepsCollector.observe(Granularity.DAILY)
-        .collect { stepsDataList ->
-            // stepsDataList contains today's step counts
-            stepsDataList.forEach { data ->
-                println("${data.timestamp}: ${data.count} steps")
-            }
-        }
-}
-```
-
-### Compose Integration
-
-```kotlin
-@Composable
-fun StepsScreen() {
-    val dailySteps by HealthDataManager.observe(DataType.STEPS, Granularity.DAILY)
-        .collectAsState(initial = emptyList())
-
-    LazyColumn {
-        items(dailySteps) { data ->
-            val date = remember(data.timestamp) {
-                SimpleDateFormat("MMM dd", Locale.getDefault())
-                    .format(Date(data.timestamp))
-            }
-            Text("$date: ${data.count} steps")
-        }
-    }
-}
-```
-
 ## Architecture
 
 ### Plugin-Based Design (v0.0.2+)
@@ -262,8 +183,8 @@ AutoTracker uses a plugin architecture where each collector auto-registers via A
 ┌──────────────────────────────────────┐
 │      HealthDataManager (core)        │  ← Single unified API
 │  - get(type, from, to, granularity)  │
-│  - observe(type, granularity)        │
 │  - isAvailable(type)                 │
+│  - getAvailableTypes()               │
 └──────────────────────────────────────┘
                    ↓
 ┌──────────────────────────────────────┐
@@ -287,14 +208,18 @@ The `core` module provides the foundation:
 // Base interface for all collectors
 interface DataCollector<T> {
     suspend fun checkPermissions(): PermissionState
-    suspend fun sync(): Result<Unit>
-    fun observe(): Flow<List<T>>
+}
+
+// Permission states
+sealed class PermissionState {
+    object Granted : PermissionState()      // Permissions granted, ready to use
+    object Denied : PermissionState()        // Data source available but permissions not granted
+    object Unavailable : PermissionState()   // Data source not available (e.g., Health Connect not installed)
 }
 
 // Extended interface with granularity support
 interface GranularDataCollector<T : HealthData> : DataCollector<T> {
     suspend fun get(from: Long, to: Long, granularity: Granularity): List<T>
-    fun observe(granularity: Granularity): Flow<List<T>>
 }
 ```
 
@@ -315,16 +240,18 @@ Each collector module:
 ```
 Health Connect API
         ↓
-StepsSyncManager (incremental sync with change tokens)
-        ↓
-Room Database (local storage with hourly granularity)
-        ↓
-StepsCollector (aggregation by hour/day)
+StepsCollector (direct queries with on-demand aggregation)
         ↓
 HealthDataManager (unified API)
         ↓
 Your App UI
 ```
+
+**v0.0.3 - Stateless Architecture:**
+- No local database or caching
+- Direct queries to Health Connect on each request
+- Data aggregation happens on-the-fly
+- Apps handle their own caching if needed
 
 ### Auto-Registration
 
@@ -332,16 +259,9 @@ When your app starts:
 1. AndroidX Startup discovers all `Initializer` classes
 2. Each collector's initializer runs automatically
 3. Collectors register themselves with `HealthDataManager`
-4. Your app can immediately use `HealthDataManager.get()` / `observe()`
+4. Your app can immediately use `HealthDataManager.get()` to fetch data
 
 No manual setup required!
-
-### Background Sync
-
-- Runs every 1 hour via WorkManager
-- Checks permissions before syncing
-- Retries on failure
-- Battery-aware (requires battery not low)
 
 ## Requirements
 
